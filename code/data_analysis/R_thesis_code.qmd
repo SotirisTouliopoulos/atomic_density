@@ -1,0 +1,2011 @@
+---
+title: "Research Article"
+subtitle: "Atomic density distributions in proteins: structural and functional implications"
+
+author: 
+  - name: "Sotirios Touliopoulos"
+    affiliations: "Department of Molecular Biology and Genetics (DUTh)"
+  - name: "Nicholas M. Glykos"
+    affiliations: "Department of Molecular Biology and Genetics (DUTh)"
+
+code-annotations: true
+
+format:
+  pdf:
+    toc: true
+    number-sections: true
+    colorlinks: true
+
+toc: true
+toc-location: left
+toc-depth: 4
+number-sections: true
+editor: visual
+---
+
+## Code for atomic density distribution analysis
+
+#### Section 1: Scaling Distributions
+
+The calculated atomic density distributions are stored in different directories based on radius (5A, 6A, 7A) and density calculation approaches. Atom count and atom weight approaches are scaled separately to histograms with same number of bins and edges.
+
+Optimal bins from all distributions are computed with the Freedman-Diaconis (FD) rule. Minimum & maximum values from all distributions (across all radius) are used as limits in the density range to compute histogram breaks.
+
+```{r, warning=FALSE , eval=FALSE}
+
+Z_5A = "atom_weight/distributions/5A"
+
+Ζ_6Α = "atom_weight/distributions/6A"
+
+Ζ_7Α = "atom_weight/distributions/7A"
+
+# get a vector with all distribution file names
+distributions_files = c(
+                        list.files(path = Z_5A, 
+                                  recursive = TRUE,
+                                  pattern = ".dist$", 
+                                  full.names = TRUE) ,
+  
+                        list.files(path = Ζ_6Α, 
+                                  recursive = TRUE,
+                                  pattern = ".dist$", 
+                                  full.names = TRUE) ,
+  
+                        list.files(path = Ζ_7Α, 
+                                recursive = TRUE,
+                                pattern = ".dist$", 
+                                full.names = TRUE) )
+
+
+# create empty vector to store all optimal bins
+all_bins = c()
+min_values = c()
+max_values = c()
+
+# iterate through every distribution file
+for (file in distributions_files)
+{
+  # read distribution file
+  distribution = scan( file=file , quiet=T)
+  
+  # find minimum distribution value
+  dist_min = min(distribution)
+  # append to vector
+  min_values = append(min_values, dist_min)
+  
+  # find maximum distribution value
+  dist_max = max(distribution)
+  # append to vector
+  max_values = append(max_values, dist_max)
+  
+  # hist function to gain histogram 
+  hist = hist(distribution, breaks = "FD" , plot=FALSE )
+  # frequencies/bin ==> counts, so length equals the number of bins
+  bins = length(hist$counts)
+  # append to vector
+  all_bins = append(all_bins, bins)
+}
+
+# find maximum value of optimal bins
+max(all_bins)
+hist(all_bins)
+bins = 100
+min_density = min(min_values)
+max_density = max(max_values)
+
+# calculate bin width
+bin_width = ( (max_density - min_density ) / bins )
+# calculate custom breaks
+breaks = seq( min_density , max_density , by=bin_width)
+
+
+write.table(breaks, file="atom_weight/breaks_atom_weight")
+
+
+rm(file,dist_min,min_values,
+   dist_max,max_values,hist)
+
+```
+
+Use computed breaks to calculate (scaled) sphere (bin) frequencies from all distributions across all radius
+
+```{r , warning=FALSE , eval=FALSE}
+
+breaks = read.table("atom_weight/breaks_atom_weight")
+breaks = c(breaks$x)
+bins = 100
+
+# set working directory, one radius at a time
+setwd("atom_weight/distributions/6A")
+
+distributions_files = list.files(path = ".", 
+                                 recursive = TRUE,
+                                 pattern = ".dist$", 
+                                 full.names = TRUE)
+
+
+# dataframe to store bin frequencies from all distributions
+raw_data = data.frame()
+
+# iterate every file
+for (file in distributions_files)
+{
+  # read distribution file
+  distribution = scan( file=file , quiet=TRUE)
+  # number of atoms
+  atoms = length(distribution)
+  
+  # compute bin frequencies
+  bin_frequencies = as.data.frame( table( cut( distribution, 
+                           breaks=breaks, 
+                           right=TRUE, 
+                           include.lowest = TRUE,
+                           dig.lab = min(nchar(breaks) ) 
+                           ) ) ) 
+  
+  # scale bin frequencies
+  scaled_bin_frequencies = bin_frequencies[,2]/atoms
+  # bind to dataframe
+  raw_data = rbind(raw_data,scaled_bin_frequencies)
+    
+}
+
+# Check scaling outcome by calculating area
+# under every histogram (must be equal to 1)
+histograms_areas = rowSums( raw_data )
+
+rm(file,distribution,atoms,bin_frequencies,scaled_bin_frequencies)
+
+# creation of a vector with pdb ids
+PDBs = c()
+for (i in distributions_files){
+  PDBs = append(PDBs, substr(i,3,6) )
+}
+# we now pass this vector as first column in the dataset
+raw_data = cbind( PDBs , raw_data )
+
+
+# We also create column integer identifiers
+# to name our columns appropriately
+columns = c("PDB_id")
+for (i in 1:bins){
+  columns = append( columns , i )
+}
+colnames(raw_data) = columns
+
+
+setwd("atom_weight/")
+write.table(raw_data , file="raw_data_6A")
+
+
+rm(columns,i)
+
+```
+
+Compute histogram bin breaks from 6A radius (only clusters of interest: 4 and 6) with atom count density calculation approach
+
+```{r}
+
+# Load distributions from clusters 4 and 6
+# See Section 7 to check how this dataframe was created
+cluster6_df = read.csv("cluster_6_df")
+cluster4_df = read.csv("cluster_4_df")
+
+cluster6_ids = cluster6_df$id
+cluster6_files <- paste0(cluster6_ids, ".pdb.water")
+cluster4_ids = cluster4_df$id
+cluster4_files <- paste0(cluster4_ids, ".pdb.water")
+
+#solvate_files <- list.files("./solvate_files/")
+#file.copy(file.path("./solvate_files/", cluster6_files), "cluster_6_files")
+#file.copy(file.path("./solvate_files/", cluster4_files), "cluster_4_files")
+
+
+cluster_4_6_dist = "atom_count/distributions/cluster_4_6_dist"
+
+# get a vector with all distribution file names
+distributions_files = c(
+                        list.files(path = cluster_4_6_dist, 
+                                  recursive = TRUE,
+                                  pattern = ".dist$", 
+                                  full.names = TRUE) )
+
+
+# create empty vector to store all optimal bins
+all_bins = c()
+min_values = c()
+max_values = c()
+
+# iterate through every distribution file
+for (file in distributions_files)
+{
+  # read distribution file
+  distribution = scan( file=file , quiet=T)
+  
+  # find minimum distribution value
+  dist_min = min(distribution)
+  # append to vector
+  min_values = append(min_values, dist_min)
+  
+  # find maximum distribution value
+  dist_max = max(distribution)
+  # append to vector
+  max_values = append(max_values, dist_max)
+  
+  # hist function to gain histogram 
+  hist = hist(distribution, breaks = "FD" , plot=FALSE )
+  # frequencies/bin ==> counts, so length equals the number of bins
+  bins = length(hist$counts)
+  # append to vector
+  all_bins = append(all_bins, bins)
+}
+
+# find maximum value of optimal bins
+max(all_bins)
+hist(all_bins)
+bins = 50
+min_density = min(min_values)
+max_density = max(max_values)
+
+# calculate bin width
+bin_width = ( (max_density - min_density ) / bins )
+# calculate custom breaks
+breaks = seq( min_density , max_density , by=bin_width)
+write.table(breaks, file="atom_count/breaks_atom_count")
+
+rm(file,dist_min,min_values,
+   dist_max,max_values,hist)
+
+
+```
+
+Scale distributions in 6A radius from clusters 4 and 6 with atom count density approach and create histogram bin frequencies
+
+```{r}
+
+
+breaks = read.table("atom_count/breaks_atom_count")
+breaks = c(breaks$x)
+
+cluster_4_6_dist = "atom_count/distributions/cluster_4_6_dist"
+
+# get a vector with all distribution file names
+distributions_files = c(
+                        list.files(path = cluster_4_6_dist, 
+                                  recursive = TRUE,
+                                  pattern = ".dist$", 
+                                  full.names = TRUE) )
+
+# dataframe to store bin frequencies from all distributions
+raw_data = data.frame()
+
+# iterate every file
+for (file in distributions_files)
+{
+  # read distribution file
+  distribution = scan( file=file , quiet=TRUE)
+  # number of atoms
+  atoms = length(distribution)
+  
+  # compute bin frequencies
+  bin_frequencies = as.data.frame( table( cut( distribution, 
+                           breaks=breaks, 
+                           right=TRUE, 
+                           include.lowest = TRUE,
+                           dig.lab = min(nchar(breaks) ) 
+                           ) ) ) 
+  
+  # scale bin frequencies
+  #scaled_bin_frequencies = bin_frequencies[,2]/atoms
+  scaled_bin_frequencies = bin_frequencies[,2]/atoms
+
+  # bind to dataframe
+  raw_data = rbind(raw_data,scaled_bin_frequencies)
+    
+}
+
+
+# Check scaling outcome by calculating area
+# under every histogram (must be equal to 1)
+histograms_areas = rowSums( raw_data , na.rm=TRUE)
+histograms_areas = colSums( raw_data , na.rm=TRUE)
+
+rm(file,distribution,atoms,bin_frequencies,scaled_bin_frequencies)
+
+# creation of a vector with pdb ids
+PDBs = c()
+for (i in distributions_files){
+  PDBs = append(PDBs, substr(i,88,91) )
+}
+# we now pass this vector as first column in the dataset
+raw_data = cbind( PDBs , raw_data )
+
+
+# We also create column integer identifiers
+# to name our columns appropriately
+columns = c("PDB_id")
+for (i in 1:bins){
+  columns = append( columns , i )
+}
+colnames(raw_data) = columns
+
+write.table(raw_data , file="atom_count/raw_data_atom_count")
+
+
+```
+
+#### Section 2: Raw Data Visualization
+
+First check the dimensions of the raw data and how many 0 columns exist
+
+```{r}
+
+
+raw_data = read.table("atom_weight/raw_data_5A")
+raw_data = as.matrix(raw_data[,-1])
+dim(raw_data)
+
+# X90
+colSums(raw_data) == 0
+
+raw_data_reduced = raw_data[, colSums(raw_data) != 0]
+dim(raw_data_reduced)
+
+
+
+raw_data = read.table("atom_weight/raw_data_6A")
+raw_data = as.matrix(raw_data[,-1])
+dim(raw_data)
+
+# X74 - X79, X81 - X84, X86 - X100
+colSums(raw_data) == 0
+
+raw_data_reduced = raw_data[, colSums(raw_data) != 0]
+dim(raw_data_reduced)
+
+
+
+raw_data = read.table("atom_weight/raw_data_7A")
+raw_data = as.matrix(raw_data[,-1])
+dim(raw_data)
+
+# X67, X71, X73 - X100
+colSums(raw_data) == 0
+
+
+raw_data_reduced = raw_data[, colSums(raw_data) != 0]
+dim(raw_data_reduced)
+
+```
+
+Scatter plots of the raw data
+
+```{r , warning=FALSE , eval=FALSE}
+
+breaks = read.table("atom_weight/breaks_atom_weight")
+breaks = c(breaks$x)
+
+raw_data = read.table("atom_weight/raw_data_6A")
+dim(raw_data)
+
+# subset the first 70 bins for scatter plot
+raw_data_subset = cbind( "PDB_id" = raw_data[,1] , raw_data[,11:51] )
+dim(raw_data_subset)
+
+# first we have to melt our dataframe
+library(reshape2)
+melt_raw_data = reshape2::melt( raw_data_subset , id.var = "PDB_id")
+
+# compute mean and standard deviation of each bin and combine them to dataframe
+library(dplyr)
+melt_raw_data = melt_raw_data %>%
+  group_by(variable) %>%
+  mutate(mean = mean(value), sd = sd(value)) %>%
+  as.data.frame()
+
+
+# add this loop to eliminate tha values of some standard deviation
+for(i in 1:(ncol(raw_data)-1) )
+{
+  if( ( i %% 5) != 0 ) 
+  {
+      melt_raw_data$sd[melt_raw_data$variable == paste("X",i,sep='')] = NA
+      melt_raw_data$mean[melt_raw_data$variable == paste("X",i,sep='')] = NA
+  }
+}
+
+melt_raw_data$sd[melt_raw_data$variable == "X15"] = NA
+melt_raw_data$mean[melt_raw_data$variable == "X15"] = NA
+
+melt_raw_data$sd[melt_raw_data$variable == "X20"] = NA
+melt_raw_data$mean[melt_raw_data$variable == "X20"] = NA
+
+melt_raw_data$sd[melt_raw_data$variable == "X40"] = NA
+melt_raw_data$mean[melt_raw_data$variable == "X40"] = NA
+
+melt_raw_data$sd[melt_raw_data$variable == "X45"] = NA
+melt_raw_data$mean[melt_raw_data$variable == "X45"] = NA
+
+# for 7A only
+#melt_raw_data$sd[melt_raw_data$variable == "X35"] = NA
+#melt_raw_data$mean[melt_raw_data$variable == "X35"] = NA
+
+
+# scatter_bins will be replaced by scatter_breaks in the scatter plot
+scatter_bins = c(1,11,21,31,41)
+scatter_breaks = 10*( round( c(breaks[11], breaks[21], breaks[31],
+                               breaks[41], breaks[51] ) ,2 ) )
+
+
+# plot
+library(ggplot2)
+
+g = ggplot(melt_raw_data, aes(x=as.numeric(variable) ) )+
+    geom_point( aes( y=value ), color="lightgrey", size=1.5 )+
+    
+    geom_errorbar( aes(ymin=mean-sd , ymax=mean+sd), 
+                 color="black" , size=.2)+
+    stat_summary(fun="mean" , geom="line" , aes(y=value) , size=0.5)+
+  
+    theme_classic()+
+
+    theme(axis.text.x=element_text(size=14),axis.title.x=element_text(size=16))+
+    theme(axis.text.y=element_text(size=14),axis.title.y=element_text(size=16))+
+
+    scale_x_continuous( breaks=scatter_bins, 
+                        labels=scatter_breaks )+
+    
+    scale_y_continuous( breaks=c(0.00, 0.04, 
+                                 0.08, 0.12, 0.16, 0.20, 0.24),
+                        limits=c(0,0.24)) +
+
+    labs( y="frequency of spheres" , 
+          x=expression(paste("Daltons per 10", 
+          ring(A)^3 ) ) )
+
+
+postscript("scatter_final_6A.eps", width=5, height=5, horizontal=FALSE, onefile=FALSE, paper="special")
+g
+dev.off()
+
+rm(i, outliers_data, outliers, outliers_int_id)
+
+
+```
+
+Plot histogram of the average raw data distribution with 2 outlier distributions
+
+```{r}
+
+library(ggplot2)
+
+
+breaks = read.table("atom_weight/breaks_atom_weight")
+breaks = c(breaks$x)
+
+raw_data = read.table("atom_weight/raw_data_6A")
+dim(raw_data)
+
+# subset the first 70 bins for scatter plot
+raw_data_subset = cbind( "PDB_id" = raw_data[,1] , raw_data[,11:51] )
+
+# first we have to melt our dataframe
+library(reshape2)
+melt_raw_data = reshape2::melt( raw_data_subset , id.var = "PDB_id")
+
+# compute mean and standard deviation of each bin and combine them to dataframe
+library(dplyr)
+melt_raw_data = melt_raw_data %>%
+  group_by(variable) %>%
+  mutate(mean = mean(value), sd = sd(value)) %>%
+  as.data.frame()
+
+
+# add this loop to eliminate tha values of some standard deviation
+for(i in 1:(ncol(raw_data)-1) )
+{
+  if( ( i %% 5) != 0 ) 
+  {
+      melt_raw_data$sd[melt_raw_data$variable == paste("X",i,sep='')] = NA
+      melt_raw_data$mean[melt_raw_data$variable == paste("X",i,sep='')] = NA
+  }
+}
+
+melt_raw_data$sd[melt_raw_data$variable == "X15"] = NA
+melt_raw_data$mean[melt_raw_data$variable == "X15"] = NA
+
+melt_raw_data$sd[melt_raw_data$variable == "X20"] = NA
+melt_raw_data$mean[melt_raw_data$variable == "X20"] = NA
+
+melt_raw_data$sd[melt_raw_data$variable == "X40"] = NA
+melt_raw_data$mean[melt_raw_data$variable == "X40"] = NA
+
+melt_raw_data$sd[melt_raw_data$variable == "X45"] = NA
+melt_raw_data$mean[melt_raw_data$variable == "X45"] = NA
+
+# for 7A only
+#melt_raw_data$sd[melt_raw_data$variable == "X35"] = NA
+#melt_raw_data$mean[melt_raw_data$variable == "X35"] = NA
+
+
+# scatter_bins will be replaced by scatter_breaks in the scatter plot
+scatter_bins = c(1,11,21,31,41)
+scatter_breaks = 10*( round( c(breaks[11], breaks[21], breaks[31],
+                               breaks[41], breaks[51] ) ,2 ) )
+
+
+# we may want to plot some protein-outliers, separately with line plots
+outliers = c("1j0p","3nio")
+outliers = c("1j0p","3ir3")
+
+# identify rows in which there is outliers data
+outliers_int_id = which(melt_raw_data$PDB_id %in% outliers)
+# store outliers data in another dataframe
+outliers_data = melt_raw_data[outliers_int_id,]
+
+
+g = ggplot(melt_raw_data)+
+    geom_line( aes(x=as.numeric(variable), y=value, color=PDB_id), 
+                   data=outliers_data , size=1.2)+
+  
+    stat_summary(fun="mean", geom="line", aes(x=as.numeric(variable), y=value), 
+                 size=1.2)+
+  
+    theme_classic()+
+  
+    theme(axis.text.x=element_text(size=14),axis.title.x=element_text(size=16))+
+    theme(axis.text.y=element_text(size=14),axis.title.y=element_text(size=16))+
+  
+    theme(legend.text = element_text(size = 14))+
+    theme(legend.title = element_text(size = 14))+
+  
+    theme(legend.key.height = unit(0.8, "cm"))+
+
+    scale_x_continuous( breaks=scatter_bins, 
+                        labels=scatter_breaks )+
+    
+    scale_y_continuous( breaks=c(0.00, 0.04, 
+                                 0.08, 0.12, 0.16),
+                        limits=c(0,0.16)) +
+
+    labs( y="frequency of spheres" , 
+          x=expression(paste("Daltons per 10", 
+          ring(A)^3 ) ) )
+
+
+postscript("scatter_outliers_final_6A.eps", width=5, height=5, horizontal=FALSE, onefile=FALSE, paper="special")
+g
+dev.off()
+
+
+```
+
+#### Section 3: Distance matrix creation
+
+Create the distance matrices for each radius using euclidean distance metric
+
+```{python , eval=FALSE}
+
+import numpy as np
+from contextlib import redirect_stdout
+
+#---- Euclidean Distance ----#
+
+#if you have 100 bins apply 101 in range function
+
+# for initial raw data
+numpy_file = np.loadtxt("atom_weight/raw_data_6A",
+                        usecols=sorted(set(range(2,102))),
+                        skiprows=1 )
+
+# export to file
+with open('atom_weight/distance.matrix.6A', 'w') as output:
+    with redirect_stdout(output):
+        for array_a in numpy_file:
+            for array_b in numpy_file:
+                #euclidean distance calculation
+                dist = np.linalg.norm( array_a - array_b )
+                print('%.5f' % dist , end='\t')
+    
+            print('')                     
+
+  
+# for raw data file without outliers 
+# (see below chunks on how this file was produced)
+numpy_file = np.loadtxt("atom_weight/raw_data_removal_100_outliers_6A", 
+                        usecols=sorted(set(range(2,102))), 
+                        skiprows=1 )
+
+# export to file
+with open('atom_weight/distance.matrix.removal.100.outliers.6A', 'w') as output:
+    with redirect_stdout(output):
+        for array_a in numpy_file:
+            for array_b in numpy_file:
+                #euclidean distance calculation
+                dist = np.linalg.norm( array_a - array_b )
+                print('%.5f' % dist , end='\t')
+    
+            print('')
+
+
+```
+
+Identification of outliers by summing each row from the distance matrix and ordering results
+
+```{r , eval=FALSE}
+
+setwd("atom_weight/distributions/6A")
+distributions_files = list.files(path = ".", 
+                                 recursive = TRUE,
+                                 pattern = ".dist$", 
+                                 full.names = TRUE)
+
+PDBs = c()
+for (i in distributions_files){
+  PDBs = append(PDBs, substr(i,3,6) )
+}
+
+
+setwd("atom_weight/")
+distance_matrix = matrix(scan("distance.matrix.6A", 
+                 n = 21255*21255), 21255, 21255, byrow = TRUE)
+
+sum = rowSums( distance_matrix , dims=1 )
+sum_df = data.frame( PDBs , sum )
+outliers_df = sum_df[order(sum_df$sum, decreasing = TRUE), ]
+
+top_outliers = c(head( outliers_df$PDBs , 100 ))
+write.table( top_outliers,"top_outliers_distance_matrix_6A")
+
+
+# find which cluster has most distances
+calculate_metrics <- function(matrix) {
+  total_sum <- sum(matrix)                  # Total sum of distances
+  average <- mean(matrix)                   # Average distance
+  max_distance <- max(matrix)               # Maximum distance
+  std_dev <- sd(matrix)                     # Standard deviation
+  
+  return(list(total_sum = total_sum, average = average, max_distance = max_distance, std_dev = std_dev))
+}
+
+metrics1 <- calculate_metrics(distance_matrix)
+
+# 7A  total_sum: 44000000  average: 0.0973  max_dist: 0.468  sd: 0.0552
+# 6A  total_sum: 31000000  average: 0.0685  max_dist: 0.354  sd: 0.035
+# 5A  total_sum: 23166256  average: 0.0513  max_dist: 0.288  sd: 0.0209
+
+
+```
+
+Create heatmap from distance matrix
+
+```{bash , eval=FALSE}
+
+# use plot program from https://github.com/glykos/plot
+
+# open distance matrix file with text editor and apply the same maximum distance across radius (only for scaled colors in heatmap)
+
+./plot -cc < atom_weight/distance.matrix.6A
+
+```
+
+Convert symmetric to triangular matrix
+
+```{python, eval=FALSE}
+
+from contextlib import redirect_stdout
+
+with open("./atom_weight/distance.matrix.6A") as input_file:
+  with open('./atom_weight/distance.matrix.triangular.6A', 'w') as output_file:
+    with redirect_stdout(output_file):
+      i = 0
+      for line in input_file:
+        i += 1
+        list = line.split()
+        print(*list[0:i] , sep=" ")
+
+
+```
+
+Convert triangular matrices to one column and compare different radius
+
+```{bash , eval=FALSE}
+
+fmt -1 ./atom_weight/distance.matrix.triangular.5A > ./atom_weight/distance.matrix.triangular.fmt.5A
+
+fmt -1 ./atom_weight/distance.matrix.triangular.6A > ./atom_weight/distance.matrix.triangular.fmt.6A
+
+fmt -1 ./atom_weight/distance.matrix.triangular.7A > ./atom_weight/distance.matrix.triangular.fmt.7A
+
+
+paste ./atom_weight/distance.matrix.fmt.5A ./atom_weight/distance.matrix.fmt.6A | ./plot
+# +0.86346943
+
+paste ./atom_weight/distance.matrix.fmt.6A ./atom_weight/distance.matrix.fmt.7A | ./plot
+# +0.92953539
+
+paste ./atom_weight/distance.matrix.fmt.5A ./atom_weight/distance.matrix.fmt.7A | ./plot
+# +0.75881490
+
+
+```
+
+Remove outliers from raw data and save to new dataframe (this is used in an above chunk to create a distance matrix without some outliers)
+
+```{r , eval=FALSE}
+
+outliers = read.table("./atom_weight/top_outliers_distance_matrix_6A")
+outliers = outliers$x
+
+raw_data = read.table("./atom_weight/raw_data_6A")
+
+non_outliers_int_id = which( ! raw_data$PDB_id %in% outliers )
+non_outliers_data = raw_data[non_outliers_int_id,]
+
+write.table(non_outliers_data , file="./atom_weight/raw_data_removal_100_outliers_6A")
+
+
+```
+
+#### Section 4: Hierarchical clustering
+
+Perform Hierarchical Clustering to create groups of structures with similar distributions
+
+```{r , eval=FALSE}
+
+library(dendextend)
+library(ggplot2)
+library(ggdendro)
+library(dendextend)
+library(dplyr)
+
+# get the PDB names
+Ζ_6Α = "atom_weight/distributions/6A"
+setwd(Ζ_6Α)
+
+distributions_files = list.files(path = ".", 
+                                 recursive = TRUE,
+                                 pattern = ".dist$", 
+                                 full.names = TRUE)
+
+PDBs = c()
+for (i in distributions_files){
+  PDBs = append(PDBs, substr(i,3,6) )
+}
+
+
+setwd("./atom_weight")
+
+# Load the distance matrix
+distance_matrix = matrix(scan("./distance.matrix.6A", 
+                  n = 21255*21255), 21255, 21255, byrow = TRUE)
+
+#max = which(distance_matrix == max(distance_matrix), arr.ind=TRUE)
+#distance_matrix[max]
+# 0.46836 
+
+
+# Convert the data into a distance matrix format and perform clustering
+hc = hclust( as.dist(distance_matrix) , method = "complete")
+
+
+# find the height for k = 12
+dendrogram_heights <- hc$height
+# Calculate the number of clusters for different heights
+number_of_clusters <- sapply(dendrogram_heights, function(h) {
+  sum(hc$height > h)
+})
+# Find the height that results in 10 clusters
+target_height <- max(dendrogram_heights[number_of_clusters == 12])
+print(target_height)
+
+
+# extract clusters
+clusters = cutree( hc, k = 12)
+#clusters = cutree( hc, h = 0.14)
+
+clusters_df = as.data.frame(clusters)
+rownames( clusters_df ) = PDBs
+clusters_df %>% count(clusters)
+write.table( clusters_df , file="./hierarchical_clusters_6A_df")
+
+
+dend <- as.dendrogram(hc) %>%
+  set("branches_k_color", k = 12)
+
+ggd1 <- as.ggdend(dend)
+
+
+# for plot with red line and without coloured clusters
+ggplot(ggd1$segments) +
+  
+  geom_segment(aes(x = x, y = y, xend = xend, yend = yend))+
+  labs( y="" , x="" )+
+  geom_hline(yintercept = 0.14, color = "red", size = 1)+
+  theme_classic()+
+  theme(
+         axis.text.x=element_blank(), 
+         axis.ticks.x=element_blank(),
+         axis.text.y=element_text(size=14),
+         legend.position = "none")
+
+
+ggsave('hierarchical_red_line.png', 
+       plot = last_plot(),
+       device = "png",
+       width = 5, height = 5, dpi = 1000, units = "in")
+
+
+
+# for plot with red line and without coloured clusters
+ggplot(ggd1$segments) +
+  
+  geom_segment(aes(x = x, y = y, xend = xend, yend = yend, col = col))+
+  labs( y="" , x="" )+
+  theme_classic()+
+  theme(
+         axis.text.x=element_blank(), 
+         axis.ticks.x=element_blank(),
+         axis.text.y=element_text(size=14),
+         legend.position = "none")
+
+
+ggsave('hierarchical_coloured_clusters.png', 
+       plot = last_plot(),
+       device = "png",
+       width = 5, height = 5, dpi = 1000, units = "in")
+
+
+```
+
+#### Section 5: PCA
+
+Perform Principal Components Analysis to see the spread of the data and visualize Outliers
+
+```{r}
+
+library(factoextra)
+library(rgl)
+library(ggplot2)
+
+setwd("./atom_weight")
+df = read.table('raw_data_6A' , header=TRUE)
+
+names = df[,1]
+df = df[,-1]
+rownames(df) = names
+
+# perform PCA
+pca <- prcomp(df, scale. = FALSE)
+
+# save top 3 Principal Components in DataFrame
+pca3d <- data.frame("PC1" = pca$x[,1], 
+                    "PC2" = pca$x[,2],
+                    "PC3" = pca$x[,3])
+
+# Label Outliers
+pca3d$label = ""
+#pca3d[ which(rownames(df) == "3nio") , ]$label = "3nio"
+pca3d[ which(rownames(df) == "3ir3") , ]$label = "3ir3"
+pca3d[ which(rownames(df) == "1j0p") , ]$label = "1j0p"
+
+
+g = ggplot( pca3d, aes(x= PC1 , y= PC2) )+
+  theme_classic()+
+  geom_bin2d(bins = 70) +
+  scale_fill_continuous(type = "viridis")+
+  guides(color = FALSE)+
+  geom_text(aes(label = label), color = "black", size = 5, vjust = -0.8, hjust = +0.5)+
+  theme(axis.text.x=element_text(size=14),axis.title.x=element_text(size=16))+
+  theme(axis.text.y=element_text(size=14),axis.title.y=element_text(size=16))+
+  
+  scale_x_continuous( breaks=c(-0.2, -0.1, +0.0, +0.1, +0.2),
+                      limits=c(-0.2, +0.2) )+
+    
+  scale_y_continuous( breaks=c(-0.10, -0.05, 0.0, +0.05, +0.10, +0.15),
+                      limits=c(-0.10, +0.15)) +
+
+postscript("pc1_pc2_outliers.eps", width=5, height=5, horizontal=FALSE, onefile=FALSE, paper="special")
+g
+dev.off()
+
+
+
+g = ggplot( pca3d, aes(x= PC1 , y= PC3) )+
+  theme_classic()+
+  geom_bin2d(bins = 70) +
+  scale_fill_continuous(type = "viridis")+
+  guides(color = FALSE)+
+  geom_text(aes(label = label), color = "black", 
+            size = 5, vjust = +1.4, hjust = +0.7)+
+  theme(axis.text.x=element_text(size=14),axis.title.x=element_text(size=16))+
+  theme(axis.text.y=element_text(size=14),axis.title.y=element_text(size=16))+
+  
+  scale_x_continuous( breaks=c(-0.2, -0.1, +0.0, +0.1, +0.2),
+                      limits=c(-0.2, +0.2) )+
+  scale_y_continuous( breaks=c(-0.08, -0.04, +0.0, +0.04, +0.08),
+                      limits=c(-0.08, +0.08) )
+
+postscript("pc1_pc3_outliers.eps", width=5, height=5, horizontal=FALSE, onefile=FALSE, paper="special")
+g
+dev.off()
+
+
+
+
+g = ggplot( pca3d, aes(x= PC3 , y= PC2) )+
+  theme_classic()+
+  geom_bin2d(bins = 70) +
+  scale_fill_continuous(type = "viridis")+
+  guides(color = FALSE)+
+  geom_text(aes(label = label), color = "black", 
+            size = 5, vjust = -0.8, hjust = +0.5)+
+  theme(axis.text.x=element_text(size=14),axis.title.x=element_text(size=16))+
+  theme(axis.text.y=element_text(size=14),axis.title.y=element_text(size=16))+
+  
+  scale_y_continuous( breaks=c(-0.10, -0.05, 0.0, +0.05, +0.10, +0.15),
+                      limits=c(-0.10, +0.15))+
+  scale_x_continuous( breaks=c(-0.08, -0.04, +0.0, +0.04, +0.08),
+                      limits=c(-0.08, +0.08) )
+  
+postscript("pc2_pc3_outliers.eps", width=5, height=5, horizontal=FALSE, onefile=FALSE, paper="special")
+g
+dev.off()
+
+
+```
+
+#### Section 6: Clusters comparison
+
+Raw data comparison from clusters of interest
+
+```{r}
+
+breaks = read.table("atom_weight/breaks_atom_weight")
+breaks = c(breaks$x)
+
+hierarchical_df = read.table("atom_weight/hierarchical_clusters_6A_df")
+PDBs = c(rownames(hierarchical_df))
+counts = data.frame(table(hierarchical_df$clusters))
+cluster1 = which( hierarchical_df$clusters == 6)
+cluster2 = which( hierarchical_df$clusters == 4)
+
+raw_data = read.table("raw_data_6A")
+#num_zero_columns <- sum(colSums(raw_data != 0) == 0)
+raw_data_subset = cbind( "PDB_id" = raw_data[,1] , raw_data[,11:51] )
+
+# Subset initial raw_data to include only data from clusters 4 and 6
+cluster1_df = raw_data_subset[cluster1,]
+cluster2_df = raw_data_subset[cluster2,]
+
+cluster1_df$cluster = "6"
+cluster2_df$cluster = "4"
+
+cluster_df = rbind(cluster1_df, cluster2_df)
+
+
+
+# first we have to melt our dataframe
+library(reshape2)
+melt_raw_data = reshape2::melt( cluster_df , id.vars= c("PDB_id","cluster") )
+
+# compute mean and standard deviation of each bin and combine them to dataframe
+library(dplyr)
+melt_raw_data = melt_raw_data %>%
+  group_by(variable) %>%
+  mutate(mean = mean(value)) %>%
+  as.data.frame()
+
+
+# scatter_bins will be replaced by scatter_breaks in the scatter plot
+scatter_bins = c(1,11,21,31,41)
+scatter_breaks = 10*( round( c(breaks[11], breaks[21], breaks[31],
+                               breaks[41], breaks[51] ) ,2 ) )
+
+
+
+# plot
+library(ggplot2)
+
+g = ggplot(melt_raw_data, aes(x=as.numeric(variable) ) )+
+    geom_point( aes( y=value, color=cluster), size=1.5, alpha=0.5 )+
+  
+    stat_summary(fun="mean" , geom="line" , aes(y=value, group=cluster), size=0.5)+
+  
+    theme_classic()+
+  
+    theme(axis.text.x=element_text(size=14),axis.title.x=element_text(size=16))+
+    theme(axis.text.y=element_text(size=14),axis.title.y=element_text(size=16))+
+  
+    scale_x_continuous( breaks=scatter_bins, 
+                        labels=scatter_breaks )+
+    
+    scale_y_continuous( breaks=c(0.00, 0.04, 
+                                 0.08, 0.12, 0.16, 0.20, 0.24),
+                        limits=c(0,0.24))+
+
+    labs( y="frequency of spheres" , 
+          x=expression(paste("Daltons per 10", 
+          ring(A)^3 ) ) )
+
+
+ggsave('scatter_plot_clusters_4_6.png', 
+       #bg='transparent',
+       plot = last_plot(),
+       device = "png",
+       width = 5, height = 5, dpi = 1000, units = "in")
+
+
+```
+
+Compute Z scores from the distributions of each cluster and use it as a distance metric to create a dendrogram and see clusters similarities
+
+```{r}
+
+library(ggdendro)
+library(dendextend)
+
+# create empty 12*12 dataframe (dimensions equal to total clusters)
+z_scores_df <- data.frame(matrix(ncol = 12, nrow = 12))
+colnames(z_scores_df) <- c("1", "2", "3","4","5","6","7","8","9","10","11","12")
+rownames(z_scores_df) <- c("1", "2", "3","4","5","6","7","8","9","10","11","12")
+
+
+breaks = read.table("atom_weight/breaks_atom_weight")
+breaks = c(breaks$x)
+breaks_mean_freq = breaks[1:41]
+
+raw_data = read.table("atom_weight/raw_data_6A")
+raw_data_subset = cbind( "PDB_id" = raw_data[,1] , raw_data[,11:51] )
+
+hierarchical_df = read.table("atom_weight/hierarchical_clusters_6A_df")
+PDBs = c(rownames(hierarchical_df))
+
+#cluster1 = which( hierarchical_df$clusters == 1 | hierarchical_df$clusters == 2)
+
+
+
+for (i in 1:12){
+  for (j in 1:12){
+    if (i != j){
+
+      cluster1 = which( hierarchical_df$clusters == i)
+      cluster2 = which( hierarchical_df$clusters == j)
+
+      # for each cluster comparison subset and create their own raw data
+      cluster1_df = raw_data_subset[cluster1,]
+      cluster2_df = raw_data_subset[cluster2,]
+      
+      cluster1_df$cluster = as.character(i)
+      cluster2_df$cluster = as.character(j)
+      
+      cluster_df = rbind(cluster1_df, cluster2_df)
+      
+      # calculate average distribution for both clusters
+      group_mean = aggregate(x= cluster_df[,2:42],
+                            by = list(cluster_df$cluster),      
+                            FUN = mean)
+      
+      mean_freq_1 = group_mean[1,2:42]
+      mean_freq_1 = t(mean_freq_1)
+      mean_freq_2 = group_mean[2,2:42]
+      mean_freq_2 = t(mean_freq_2)
+      
+      mean_value_1 <- sum(breaks_mean_freq * mean_freq_1) / sum(mean_freq_1)
+      mean_value_2 <- sum(breaks_mean_freq * mean_freq_2) / sum(mean_freq_2)
+      
+      # calculate std for distribution of both clusters
+      std_value_1 <- sqrt(sum(mean_freq_1 * (breaks_mean_freq - mean_value_1)^2) / 
+                        sum(mean_freq_1))
+      
+      std_value_2 <- sqrt(sum(mean_freq_2 * (breaks_mean_freq - mean_value_2)^2) / 
+                        sum(mean_freq_2))
+
+      
+      # define gaussian function
+      gaussian <- function(x, a, x0, sigma) {
+        a * exp(-((x - x0) ^ 2) / (2 * sigma ^ 2))
+      }
+      
+      df_1 <- data.frame(x = mean_freq_1)
+      hist_df_1 <- data.frame(breaks_mean_freq = breaks_mean_freq, 
+                              mean_freq = mean_freq_1)
+      init_1 <- list(a = max(mean_freq_1), x0 = mean_value_1, sigma = std_value_1)
+      # fit average distribution of cluster 1 to gaussian
+      fit_1 <- nls(mean_freq_1 ~ gaussian(breaks_mean_freq, a, x0, sigma), 
+                 data = hist_df_1, start = init_1)
+      
+      # Extract the fitted parameters
+      fitted_params_1 <- summary(fit_1)$parameters
+      a_value_1 <- fitted_params_1["a", "Estimate"]
+      # mean
+      x0_value_1 <- fitted_params_1["x0", "Estimate"]
+      # std
+      sigma_value_1 <- fitted_params_1["sigma", "Estimate"]
+      
+      df_2 <- data.frame(x = mean_freq_2)
+      hist_df_2 <- data.frame(breaks_mean_freq = breaks_mean_freq, 
+                              mean_freq = mean_freq_2)
+      init_2 <- list(a = max(mean_freq_2), x0 = mean_value_2, sigma = std_value_2)
+      # fit average distribution of cluster 2 to gaussian
+      fit_2 <- nls(mean_freq_2 ~ gaussian(breaks_mean_freq, a, x0, sigma), 
+                 data = hist_df_2, start = init_2)
+      
+      # Extract the fitted parameters
+      fitted_params_2 <- summary(fit_2)$parameters
+      a_value_2 <- fitted_params_2["a", "Estimate"]
+      # mean
+      x0_value_2 <- fitted_params_2["x0", "Estimate"]
+      # std
+      sigma_value_2 <- fitted_params_2["sigma", "Estimate"]
+      
+      
+      set.seed(123)
+      x <- seq(min(breaks_mean_freq), max(breaks_mean_freq), length.out = 41)
+      y <- a_value_1 * exp(-((x - x0_value_1)^2) / (2 * sigma_value_1^2))
+      
+      
+      set.seed(123)
+      x <- seq(min(breaks_mean_freq), max(breaks_mean_freq), length.out = 41)
+      y <- a_value_2 * exp(-((x - x0_value_2)^2) / (2 * sigma_value_2^2))
+      
+      
+      mean1 <- x0_value_1
+      mean2 <- x0_value_2
+      sd1 <- sigma_value_1
+      sd2 <- sigma_value_2
+      n1 <- 41
+      n2 <- 41
+      
+      # Compute std difference
+      SE_diff <- sqrt((sd1^2 / n1) + (sd2^2 / n2))
+      
+      # Compute Z-score
+      z_score <- (mean1 - mean2) / SE_diff
+      
+      # save Z-score to correspond place in the matrix
+      z_scores_df[i,j] = abs(z_score)
+      
+    }
+  }
+}
+
+
+z_scores_matrix = as.matrix(z_scores_df)
+z_scores_matrix[upper.tri(z_scores_matrix)]=0
+
+hc = hclust( as.dist(z_scores_matrix) , method = "complete")
+
+dend <- as.dendrogram(hc)
+ggd1 <- as.ggdend(dend)
+
+
+library(ggplot2)
+
+
+ggplot(ggd1$segments) +
+  
+  geom_segment(aes(x = x, y = y, xend = xend, yend = yend))+
+  
+  labs( y="" , x="" )+
+  theme_classic()+
+  
+  geom_text(data = ggd1$labels, aes(x = x, y = y, label = label), 
+            angle = 0, hjust = 0.5, vjust = 1.5, size = 4)+
+  
+  theme(
+         axis.text.x=element_blank(), 
+         axis.ticks.x=element_blank(),
+         axis.line.x = element_blank(),
+         axis.text.y=element_text(size=14),
+         legend.position = "none")
+
+
+ggsave('dendrogram_z_scores.png', 
+       plot = last_plot(),
+       device = "png",
+       width = 5, height = 5, dpi = 1000, units = "in")
+
+
+```
+
+Export clusters of interest to their own labeled dataframe
+
+```{r}
+
+hierarchical_df = read.table("atom_weight/hierarchical_clusters_6A_df")
+PDBs = c(rownames(hierarchical_df))
+Clusters = c(hierarchical_df[,1])
+
+cluster4 = which( hierarchical_df$clusters == 4)
+cluster6 = which( hierarchical_df$clusters == 6)
+
+cluster4_df = data.frame("id" = PDBs[cluster4], "cluster" = 4)
+write.csv(cluster4_df, "atom_weight/cluster_4_df", row.names = FALSE)
+
+cluster6_df = data.frame("id" = PDBs[cluster6], "cluster" = 6)
+write.csv(cluster6_df, "atom_weight/cluster_6_df", row.names = FALSE)
+
+
+cluster_df = rbind(cluster4_df, cluster6_df)
+write.csv(cluster_df, "atom_weight/cluster_4_6_df", row.names = FALSE)
+
+cluster_df = data.frame("id" = PDBs, "cluster" = Clusters)
+write.csv(cluster_df, "atom_weight/cluster_all_df", row.names = FALSE)
+
+
+subcluster <- cluster4[seq(1, length(cluster4), 5)]
+subcluster = PDBs[subcluster]
+
+
+```
+
+Graphical comparison of clusters 4 and 6 with atom count approach
+
+```{r}
+
+
+cluster6_df = read.csv("atom_weight/cluster_6_df")
+cluster4_df = read.csv("atom_weight/cluster_4_df")
+
+cluster6_ids = cluster6_df$id
+cluster6_files <- paste0(cluster6_ids, ".pdb.water")
+cluster4_ids = cluster4_df$id
+cluster4_files <- paste0(cluster4_ids, ".pdb.water")
+
+raw_data = read.table("atom_count/raw_data_atom_count")
+PDBs = raw_data$PDB_id
+
+cluster6 = match(cluster6_ids, PDBs)
+cluster4 = match(cluster4_ids, PDBs)
+
+raw_data_subset = cbind( "PDB_id" = raw_data[,1] , raw_data[,3:46] )
+
+cluster6_df = raw_data_subset[cluster6,]
+cluster4_df = raw_data_subset[cluster4,]
+
+cluster6_df$cluster = "6"
+cluster4_df$cluster = "4"
+
+cluster_df = rbind(cluster6_df, cluster4_df)
+
+
+# first we have to melt our dataframe
+library(reshape2)
+melt_raw_data = reshape2::melt( cluster_df , id.vars= c("PDB_id","cluster") )
+
+# compute mean and standard deviation of each bin and combine them to dataframe
+library(dplyr)
+melt_raw_data = melt_raw_data %>%
+  group_by(variable) %>%
+  mutate(mean = mean(value)) %>%
+  as.data.frame()
+
+
+breaks = read.table("atom_count/breaks_atom_count")
+breaks = c(breaks$x)
+
+# scatter_bins will be replaced by scatter_breaks in the scatter plot
+scatter_bins = c(1,15,30,46)
+scatter_breaks = 10*( round( c(breaks[3], breaks[18], breaks[33],
+                               breaks[49] ) ,2 ) )
+
+
+# plot
+library(ggplot2)
+
+g = ggplot(melt_raw_data, aes(x=as.numeric(variable) ) )+
+    geom_point( aes( y=value, color=cluster), size=1.5, alpha=0.5 )+
+  
+    stat_summary(fun="mean" , geom="line" , aes(y=value, group=cluster), size=0.5)+
+  
+    theme_classic()+
+  
+    theme(axis.text.x=element_text(size=14),axis.title.x=element_text(size=16))+
+    theme(axis.text.y=element_text(size=14),axis.title.y=element_text(size=16))+
+  
+    scale_x_continuous( breaks=scatter_bins, 
+                        labels=scatter_breaks )+
+    scale_y_continuous( breaks=c(0.00, 0.04, 
+                                 0.08, 0.12, 0.16, 0.20, 0.24),
+                        limits=c(0,0.24))+
+    
+    #scale_y_continuous( breaks=c(0.00, 0.02, 0.04, 0.06),
+    #                    limits=c(0,0.06))+
+
+    labs( y="frequency of spheres" , 
+          x=expression(paste("Atoms per 10", 
+          ring(A)^3 ) ) )
+
+
+ggsave('clusters_comparison.png', 
+       plot = last_plot(),
+       device = "png",
+       width = 5, height = 5, dpi = 1000, units = "in")
+
+
+
+```
+
+#### Section 7: Functional Analysis
+
+Calculate the sum per cluster for protein families with 2 different normalization approaches
+
+```{r}
+
+library(reshape2)
+
+
+classifications_per_cluster = read.csv("atom_weight/classification_counts_all.csv")
+
+# size of clusters
+cluster_size_original = c(5813, 7045, 344, 2821, 400)
+
+# this is the total abundance of only the 4 families in each cluster
+cluster_size = c(2597, 3394, 124, 1383, 91)
+
+
+# Hydrolases
+hydrolases <- which(grepl("hydrolase", 
+                          classifications_per_cluster$classification, 
+                          ignore.case = TRUE) &
+                          classifications_per_cluster$cluster %in% 
+                                                     c("1", "3", "4", "5", "6"))
+
+hydrolases = classifications_per_cluster[hydrolases,]
+
+hydrolases_abundance <- aggregate(hydrolases[[3]], 
+                          by = list(Cluster = hydrolases[[1]]), 
+                          FUN = sum)
+
+colnames(hydrolases_abundance) <- c("Cluster", "hydrolases")
+total_hydrolases_abundance = sum(hydrolases_abundance$hydrolases)
+
+
+# Transferases
+transferases <- which(grepl("transfera", 
+                          classifications_per_cluster$classification, 
+                          ignore.case = TRUE) &
+                          classifications_per_cluster$cluster %in% 
+                                                     c("1", "3", "4", "5", "6"))
+
+transferases = classifications_per_cluster[transferases,]
+
+transferases_abundance <- aggregate(transferases[[3]], 
+                          by = list(Cluster = transferases[[1]]), 
+                          FUN = sum)
+
+colnames(transferases_abundance) <- c("Cluster", "transferases")
+total_transferases_abundance = sum(transferases_abundance$transferases)
+
+
+# Oxidoreductases
+oxidoreductases <- which(grepl("oxidoreductase", 
+                          classifications_per_cluster$classification, 
+                          ignore.case = TRUE) &
+                          classifications_per_cluster$cluster %in% 
+                                                     c("1", "3", "4", "5", "6"))
+
+oxidoreductases = classifications_per_cluster[oxidoreductases,]
+
+oxidoreductases_abundance <- aggregate(oxidoreductases[[3]], 
+                          by = list(Cluster = oxidoreductases[[1]]), 
+                          FUN = sum)
+
+colnames(oxidoreductases_abundance) <- c("Cluster", "oxidoreductases")
+total_oxidoreductases_abundance = sum(oxidoreductases_abundance$oxidoreductases)
+
+
+# Ligases
+ligases <- which(grepl("ligase", 
+                          classifications_per_cluster$classification, 
+                          ignore.case = TRUE) &
+                          classifications_per_cluster$cluster %in% 
+                                                     c("1", "3", "4", "5", "6"))
+
+ligases = classifications_per_cluster[ligases,]
+
+ligases_abundance <- aggregate(ligases[[3]], 
+                          by = list(Cluster = ligases[[1]]), 
+                          FUN = sum)
+
+colnames(ligases_abundance) <- c("Cluster", "ligases")
+total_ligases_abundance = sum(ligases_abundance$ligases)
+
+
+
+# Merge all dataframe
+all_families = cbind(cluster_size, 
+                     hydrolases_abundance, 
+                     transferases_abundance,
+                     oxidoreductases_abundance,
+                     ligases_abundance)
+rownames(all_families) = c("1", "3", "4", "5", "6")
+# remove duplicate cluster id columns
+all_families = all_families[, c(-4,-6,-8)]
+# compute abundance for any other family in sample
+other_cluster_1 = 5813 - sum(all_families[1,3:6])
+other_cluster_3 = 7045 - sum(all_families[2,3:6])
+other_cluster_4 = 344 - sum(all_families[3,3:6])
+other_cluster_5 = 2821 - sum(all_families[4,3:6])
+other_cluster_6 = 400 - sum(all_families[5,3:6])
+
+all_families$other = c(other_cluster_1, other_cluster_3, other_cluster_4,
+                       other_cluster_5, other_cluster_6 )
+
+
+
+# First Calculate percentage of family in cluster by dividing 
+# family cluster abundance with total family abundance across clusters
+# Results are comparable only within each cluster
+all_families$hydrolases_family_perc = 100 * all_families$hydrolases/total_hydrolases_abundance
+
+all_families$transferases_family_perc = 100 * all_families$transferases/total_transferases_abundance
+
+all_families$oxidoreductases_family_perc = 100 * all_families$oxidoreductases/total_oxidoreductases_abundance
+
+all_families$ligases_family_perc = 100 * all_families$ligases/total_ligases_abundance
+
+all_families$other_family_perc =  100 * all_families$other/sum(all_families$other)
+
+
+
+
+# Now calculate percentage of family in each cluster by dividing
+# family cluster abundance with families abundance in cluster
+# Results are comparable only within each family
+all_families$hydrolases_cluster_perc = 100 * all_families$hydrolases/all_families$cluster_size 
+
+all_families$transferases_cluster_perc = 100 * all_families$transferases/all_families$cluster_size 
+
+all_families$oxidoreductases_cluster_perc = 100 * all_families$oxidoreductases/all_families$cluster_size 
+
+all_families$ligases_cluster_perc = 100 * all_families$ligases/all_families$cluster_size 
+
+
+
+
+# Cluster 1: more Transferases than Hydrolases
+# Cluster 5: more Hydrolases than Transferases
+# Within one family (and not within clusters) the sum is 100%
+line_plot_data = all_families[,c(2,8:12)]
+
+colnames(line_plot_data) = c("Cluster", "Hydrolases", "Transferases", 
+                             "Oxidoreductases", "Ligases", "Other")
+
+melt_line_plot_data = reshape2::melt( line_plot_data , id.var = "Cluster")
+melt_line_plot_data$Cluster <- factor(melt_line_plot_data$Cluster, 
+                                      levels = c("4","1","3","5","6") )
+
+colnames(melt_line_plot_data) = c("Cluster","Family","Percentage")
+
+ggplot(melt_line_plot_data, aes(x = Cluster, y = Percentage, fill = Family)) +
+  theme_classic()+
+
+  theme(axis.text.x=element_text(size=14),axis.title.x=element_text(size=16))+
+  theme(axis.text.y=element_text(size=14),axis.title.y=element_text(size=16))+
+  geom_bar(stat = "identity", position = "dodge")+
+  #scale_fill_manual(values = c("blue", "red","orange","green"))+
+  theme(text = element_text(size = 12))+
+  
+  scale_y_continuous( breaks=c(0, 20, 40, 60, 80),
+                        limits=c(0,80))+
+  
+  scale_fill_manual(values = c("Hydrolases" = "blue", 
+                               "Transferases" = "orange",
+                               "Oxidoreductases" = "green",
+                               "Ligases" = "red",
+                               "Other" = "yellow"))+
+  
+  labs( y="% of Families per Clusters", 
+        x="Cluster" )
+
+ggsave("functional_compare_within_clusters.png", plot = last_plot(), 
+       width = 5, height = 5, dpi = 1000, device = "png", unit="in")
+
+
+
+
+
+
+# Hydrolases tend to increase as we go to the dense clusters
+# Transferases tend to increase as we go to the loose clusters
+# within one cluster (and not family) the sum is 100%
+line_plot_data = all_families[,c(2,13:16)]
+
+colnames(line_plot_data) = c("Cluster", "Hydrolases", "Transferases", 
+                             "Oxidoreductases", "Ligases")
+
+melt_line_plot_data = reshape2::melt( line_plot_data , id.var = "Cluster")
+melt_line_plot_data$Cluster <- factor(melt_line_plot_data$Cluster, 
+                                      levels = c("4","1","3","5","6") )
+
+colnames(melt_line_plot_data) = c("Cluster","Family","Percentage")
+
+ggplot(melt_line_plot_data, aes(x = Cluster, y = Percentage, fill = Family)) +
+  theme_classic()+
+
+  theme(axis.text.x=element_text(size=14),
+        axis.title.x=element_text(size=16))+
+  theme(axis.text.y=element_text(size=14),
+        axis.title.y=element_text(size=16))+
+  geom_bar(stat = "identity", position = "dodge")+
+  
+  scale_y_continuous( breaks=c(0, 20, 40, 60, 80),
+                        limits=c(0,80))+
+  
+  scale_fill_manual(values = c("Hydrolases" = "blue", 
+                               "Transferases" = "orange",
+                               "Oxidoreductases" = "green",
+                               "Ligases" = "red"))+
+  
+  labs( y="% of Families per Clusters", 
+        x="Cluster" )
+
+ggsave("functional_compare_within_clusters_2.png", plot = last_plot(), 
+       width = 5, height = 5, dpi = 1000, device = "png", unit="in")
+
+
+```
+
+#### Section 8: Calculate Structural Features and Density Stats
+
+Use calculated structural features (e.g. normalized water mass, number of CAs) from python scripts found in "code/data_analysis" to create a merged dataframe with density distributions metrics (e.g. median, std)
+
+```{r}
+
+
+hierarchical_df = read.table("atom_weight/hierarchical_clusters_6A_df")
+PDBs = c(rownames(hierarchical_df))
+Clusters = c(hierarchical_df[,1])
+
+# calculate atomic density distribution moments
+files = paste0("atom_weight/distributions/6A", PDBs , ".pdb.water.dist")
+
+moments_df = data.frame(
+                PDB = character(), 
+                cluster = character(),
+                median = numeric(),
+                sd = numeric() )
+
+# iterate every file
+i = 0
+for (file in files)
+{
+  i = i + 1
+  cluster = Clusters[i]
+  # read distribution file
+  distribution = scan( file=file , quiet=TRUE)
+  median = median(distribution)
+  sd = sd(distribution)
+ 
+  moments_df[i, ] = c(substr(file,7,10), 
+                      cluster, 
+                      median, 
+                      sd )
+}
+
+write.table(moments_df, "atom_weight/median_std_density_6A")
+
+
+### -------------------------------
+
+
+# Thif file has been produced with the python script: alpha_carbons_bfactors_water_mass.py
+ca_bfactor_water = read.table("atom_weight/alpha_carbons_bfactors_normalized_water_mass.counts" , sep=" ", header=F)[,1:4]
+colnames(ca_bfactor_water) = c("PDB", "alpha_carbons", 
+                  "median_bfactor", "normalized_water_mass")
+
+median_std_density = read.table("atom_weight/median_std_density_6A")
+colnames(median_std_density) = c("PDB", "cluster", "median_density", "std_density")
+
+
+# Thif file has been produced with the python script: stride_output_analysis.py
+secondary_structure_elements = read.table("atom_weight/secondary_structure_percentage_stride")[,c(1,2,3)]
+colnames(secondary_structure_elements) = c("PDB", "alpha_helix", "beta_strand")
+
+library(dplyr)
+library(ggpubr)
+
+# join dataframes to match PDBs with values
+df <- ca_bfactor_water %>%
+  full_join(median_std_density, by = "PDB") %>%
+  full_join(secondary_structure_elements, by = "PDB")
+
+# remove structures with NAs in median_density column
+df <- df[!is.na(df$median_density), ]
+write.table(df , file="atom_weight/structural_features_density_metrics_6A")
+
+
+```
+
+#### Section 9: Size
+
+Identify Correlations between Protein Size and Density Distributions
+
+```{r}
+
+
+library(ggplot2)
+library(dplyr)
+library(scales)
+
+
+structural_features_density_metrics_5A = read.table("atom_weight/structural_features_density_metrics_5A")
+structural_features_density_metrics_6A = read.table("atom_weight/structural_features_density_metrics_6A")
+structural_features_density_metrics_7A = read.table("atom_weight/structural_features_density_metrics_7A")
+
+structural_features_density_metrics_5A_6A_7A = rbind(
+ structural_features_density_metrics_5A,
+ structural_features_density_metrics_6A,
+ structural_features_density_metrics_7A
+)
+
+# Calculate values for the plot range
+min_median = min(structural_features_density_metrics_5A_6A_7A$median_density)
+max_median = max(structural_features_density_metrics_5A_6A_7A$median_density)
+
+min_sd = min(structural_features_density_metrics_5A_6A_7A$std_density)
+max_sd = max(structural_features_density_metrics_5A_6A_7A$std_density)
+
+df = read.table("atom_weight/structural_features_density_metrics_6A")
+#df = na.omit(df)
+
+# Scatter Plot of CAs and Median from density distribution
+ggplot(df, aes(x=alpha_carbons, 
+               y=median_density) )+ 
+  labs(x="Number of Residues", y = "Median Density")+
+
+  theme_classic()+
+  
+    theme(axis.text.x=element_text(size=14),axis.title.x=element_text(size=16))+
+    theme(axis.text.y=element_text(size=14),axis.title.y=element_text(size=16))+
+  
+  geom_point()+
+  geom_smooth(method=lm)+
+   
+  scale_x_continuous( breaks=c(0,1250,2500,3750,5000), 
+                      limits=c(0,5000) )+
+    
+  scale_y_continuous( breaks = seq(min_median, max_median, length.out = 5),
+                      limits=c(min_median, max_median),
+                      labels = number_format(accuracy = 0.01))
+
+ggsave("median_density_alpha_carbons.png", plot = last_plot(), 
+       width = 5, height = 5, dpi = 1000, device = "png", unit="in")
+
+cor(as.numeric(df$median_density), 
+    as.numeric(df$alpha_carbons), 
+    method = 'spearman')
+
+### -----------------
+
+# Scatter Plot of CAs and std of density distribution
+ggplot(df, aes(x=alpha_carbons, 
+               y=std_density) )+ 
+       geom_point()+
+       labs(x="Number of Residues", y = "Standard Deviation")+
+
+        theme_classic()+
+  
+        theme(axis.text.x=element_text(size=14),axis.title.x=element_text(size=16))+
+        theme(axis.text.y=element_text(size=14),axis.title.y=element_text(size=16))+
+  
+       scale_x_continuous( breaks=c(0,1250,2500,3750,5000), 
+                      limits=c(0,5000) )+
+    
+       scale_y_continuous( breaks = seq(min_sd, max_sd, length.out = 5),
+                      limits=c(min_sd, max_sd),
+                      labels = number_format(accuracy = 0.01))
+
+ggsave("std_density_alpha_carbons.png", plot = last_plot(), 
+       width = 5, height = 5, dpi = 1000, device = "png", unit="in")
+
+
+### ------------------
+
+df = read.table("atom_weight/structural_features_density_metrics_6A")
+#df = na.omit(df)
+
+
+# protein size - density comparison
+quantile(df$alpha_carbons, probs = c(0,0.2,0.4,0.6,0.8,1))
+#  51  182  281  406  664 4682 
+
+# Create groups of structures based on their size (quantiles of CAs) to calculate density metrics per group
+extra_large_proteins = subset(df, as.numeric(alpha_carbons) >= 664 &
+                                  as.numeric(alpha_carbons) < 4682)
+extra_large_proteins$size = "extra_large"
+
+
+large_proteins = subset(df, as.numeric(alpha_carbons) < 664 &
+                            as.numeric(alpha_carbons) >= 406)
+large_proteins$size = "large"
+
+
+medium_proteins = subset(df, as.numeric(alpha_carbons) < 406 &
+                            as.numeric(alpha_carbons) >= 281)
+medium_proteins$size = "medium"
+
+
+small_proteins = subset(df, as.numeric(alpha_carbons) < 281 &
+                            as.numeric(alpha_carbons) >= 182)
+small_proteins$size = "small"
+
+
+extra_small_proteins = subset(df, as.numeric(alpha_carbons) < 182 &
+                                  as.numeric(alpha_carbons) >= 51)
+extra_small_proteins$size = "extra_small"
+
+
+
+median(extra_large_proteins$median_density)
+median(large_proteins$median_density)
+median(medium_proteins$median_density)
+median(small_proteins$median_density)
+median(extra_small_proteins$median_density)
+
+median(extra_large_proteins$std_density)
+median(large_proteins$std_density)
+median(medium_proteins$std_density)
+median(small_proteins$std_density)
+median(extra_small_proteins$std_density)
+
+sd(extra_large_proteins$median_density)
+sd(large_proteins$median_density)
+sd(medium_proteins$median_density)
+sd(small_proteins$median_density)
+sd(extra_small_proteins$median_density)
+
+
+```
+
+#### Section 10: Secondary structure
+
+Calculate Correlations between Secondary Structure Elements and Density Distributions
+
+```{r}
+
+library(ggplot2)
+library(moments)
+library(ggpubr)
+
+
+df = read.table("atom_weight/structural_features_density_metrics_6A")
+#df = na.omit(df)
+
+hierarchical_df = read.table("atom_weight/hierarchical_clusters_6A_df")
+PDBs = c(rownames(hierarchical_df))
+
+cluster4 = PDBs[which(hierarchical_df$clusters == 4)]
+cluster1 = PDBs[which(hierarchical_df$clusters == 1)]
+cluster3 = PDBs[which(hierarchical_df$clusters == 3)]
+cluster5 = PDBs[which(hierarchical_df$clusters == 5)]
+cluster6 = PDBs[which(hierarchical_df$clusters == 6)]
+
+cluster4_df = df[df$PDB %in% cluster4,]
+cluster1_df = df[df$PDB %in% cluster1,]
+cluster3_df = df[df$PDB %in% cluster3,]
+cluster5_df = df[df$PDB %in% cluster5,]
+cluster6_df = df[df$PDB %in% cluster6,]
+
+cluster4_df$cluster = "4"
+cluster1_df$cluster = "1"
+cluster3_df$cluster = "3"
+cluster5_df$cluster = "5"
+cluster6_df$cluster = "6"
+
+cluster_df = rbind(cluster4_df, cluster1_df, cluster3_df, cluster5_df, cluster6_df)
+
+
+
+my_comparisons = list( c("4", "1"), c("1","3"), c("3", "5"), c("5","6") )
+# Boxplot of Percentage of Residues contributing to Alpha-Helices across clusters
+ggplot(cluster_df, aes(x=as.numeric(alpha_helix), y=as.factor(cluster), 
+                      color=as.factor(cluster)))+
+  
+  geom_jitter()+
+  geom_violin(trim=FALSE)+
+  geom_boxplot(width = 0.1)+
+  
+  scale_y_discrete(limits=c("4", "1", "3", "5", "6"))+
+  theme_classic()+
+
+  theme(axis.text.x=element_text(size=14),axis.title.x=element_text(size=14))+
+  theme(axis.text.y=element_text(size=14),axis.title.y=element_text(size=14))+
+
+  labs(x="% of Residues Contributing to Alpha-Helices", 
+       y = "Cluster", color="Cluster")+
+  stat_compare_means(label = "p.signif" , comparisons = my_comparisons)
+
+ggsave("alpha_helices_per_cluster.png", plot = last_plot(), 
+       width = 5, height = 5, dpi = 1000, device = "png",
+       units = "in")
+
+
+
+# Boxplot of Percentage of Residues contributing to Beta-Strands across clusters
+ggplot(cluster_df, aes(x=as.numeric(beta_strand), y=as.factor(cluster), 
+                      color=as.factor(cluster)))+
+  
+  geom_jitter()+
+  geom_violin(trim=FALSE)+
+  geom_boxplot(width = 0.1)+
+  
+  scale_y_discrete(limits=c("4", "1", "3", "5", "6"))+
+  theme_classic()+
+
+  theme(axis.text.x=element_text(size=14),axis.title.x=element_text(size=14))+
+  theme(axis.text.y=element_text(size=14),axis.title.y=element_text(size=14))+
+
+  labs(x="% of Residues Contributing to Beta-Strands", 
+       y = "Cluster", color="Cluster")+
+  stat_compare_means(label = "p.signif" , comparisons = my_comparisons)
+
+ggsave("beta_strands_per_cluster.png", plot = last_plot(), width = 5, height = 5, 
+       dpi = 1000, device = "png", units = "in")
+
+
+```
+
+#### Section 11: Crystallographic Water Abundance
+
+Calculate Correlations between Normalized Water Mass and Density Distributions
+
+```{r}
+
+
+library(ggplot2)
+library(ggpubr)
+
+
+df = read.table("atom_weight/structural_features_density_metrics_6A")
+#df = na.omit(df)
+
+
+# remove outliers only for plotting
+subset_water_mass = subset(df, normalized_water_mass > 0 &
+                               normalized_water_mass < 50)
+# Scatter Plot of Normalized Water Mass and Median Density
+ggplot(subset_water_mass, 
+       aes(x=normalized_water_mass, 
+           y=median_density ) )+ 
+       geom_point()+
+       labs(x="Size-Normalized Total Water Mass", y = "Median Density")+
+  
+       theme_classic()+
+  
+       theme(axis.text.x=element_text(size=14),axis.title.x=element_text(size=16))+
+       theme(axis.text.y=element_text(size=14),axis.title.y=element_text(size=16))+
+
+       geom_smooth(method=lm)
+
+cor(as.numeric(df$median_density), 
+    as.numeric(df$normalized_water_mass), 
+    method = 'spearman')
+
+
+ggsave("water_mass_median_density.png", plot = last_plot(), 
+       width = 5, height = 5, dpi = 1000, device = "png", unit="in")
+
+
+```
+
+#### Section 12: B-factors
+
+Calculate Correlations between B-factors and Density Distributions
+
+```{r}
+
+library(ggplot2) 
+library(stats)
+library(ggpubr)
+
+
+df = read.table("atom_weight/structural_features_density_metrics_6A")
+#df = na.omit(df)
+
+# remove outliers only for plot
+subset_df = subset(df, median_bfactor < 90)
+# Scatter Plot of B-factors and Median Density
+ggplot(subset_df, aes(x=median_bfactor, y=median_density) )+
+  geom_point()+
+
+  geom_smooth(method=lm)+
+  labs(x="Median B-factor", y = "Median Density")+
+  theme_classic()+
+  
+  theme(axis.text.x=element_text(size=14),axis.title.x=element_text(size=16))+
+  theme(axis.text.y=element_text(size=14),axis.title.y=element_text(size=16))
+
+cor(as.numeric(df$median_density), 
+    as.numeric(df$median_bfactor), 
+    method = 'spearman')
+
+
+ggsave("b-factors.png", plot = last_plot(), 
+       width = 5, height = 5, dpi = 1000, device = "png")
+
+
+```
+
+#### Section 13: Keywords
+
+Calculate Percentages of PDB file-derived Keywords between clusters
+
+```{r}
+
+# Load necessary libraries
+library(dplyr)
+library(tidyr)
+
+
+hierarchical_df = read.table("atom_weight/hierarchical_clusters_6A_df")
+PDBs = c(rownames(hierarchical_df))
+cluster4 = PDBs[which(hierarchical_df$clusters == 4)]
+cluster6 = PDBs[which(hierarchical_df$clusters == 6)]
+
+df = read.table("atom_weight/keywords_4_6_df.csv", sep=",", header=T)
+
+cluster4_df = subset(df, ID %in% cluster4)
+cluster6_df = subset(df, ID %in% cluster6)
+
+cluster4_df$cluster = "4"
+cluster6_df$cluster = "6"
+
+df = rbind(cluster4_df, cluster6_df)
+
+
+# 1. Calculate percentages for each column within each cluster
+percentage_df <- df %>%
+  group_by(cluster) %>%
+  summarise(across(2:(dim(df)[2] - 1), ~ if(is.numeric(.x)) mean(.x) * 100 else NA_real_))
+
+
+cutoff <- 1
+
+percentage_long <- percentage_df %>%
+  pivot_longer(cols = -cluster, names_to = "variable", values_to = "percentage") %>%
+  filter(!is.na(percentage))
+
+percentage_wide <- percentage_long %>%
+  pivot_wider(names_from = cluster, values_from = percentage, names_prefix = "cluster_")
+
+percentage_wide <- percentage_wide %>%
+  mutate(across(starts_with("cluster_"), as.numeric))
+
+filtered_variables <- percentage_wide %>%
+  mutate(
+    diff_4_6 = abs(cluster_4 - cluster_6)
+  ) %>%
+  # Keep rows where at least two of the differences are above the cutoff
+  filter(
+    (diff_4_6 > cutoff )
+  ) %>%
+  # Select only the variable and the cluster percentages
+  select(variable, cluster_4, cluster_6)
+
+
+
+columns_to_sum <- grep("CYTOCHROME", names(df), value = TRUE)
+
+columns_to_sum <- grep("COILED", names(df), value = TRUE)
+
+
+# 5mc9 is not a solo coiled-coil structure
+rows_with_4 <- which(rowSums(cluster4_df[, columns_to_sum, drop = FALSE] == 1) > 0)
+rows_with_4 = unique(rows_with_4)
+cluster4_df$ID[rows_with_4]
+
+
+# 2VOK is not a coiled-coil so substract 1 from coiled counts (27-1)
+rows_with_6 <- which(rowSums(cluster6_df[, columns_to_sum, drop = FALSE] == 1) > 0)
+rows_with_6 = unique(rows_with_6)
+cluster6_df$ID[rows_with_6]
+any(duplicated(cluster6_df$ID[rows_with_6]))
+length(cluster6_df$ID[rows_with_6])
+
+
+```
+
+#### 
